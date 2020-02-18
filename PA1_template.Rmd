@@ -1,5 +1,7 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "nairarshad"
+date: "2/18/2020"
 output: 
   html_document:
     keep_md: true
@@ -8,18 +10,243 @@ output:
 
 ## Loading and preprocessing the data
 
+### Load Libraries
+```{r loadlibs, results = "hide", message=FALSE, warning=FALSE}
+list.of.packages <- c("data.table","plyr","dplyr","tibble", "lubridate", "knitr", "ggplot2", "stringr", "forcats", "ggpubr", "summarytools")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+```
+### Functions
+```{r usrfunctions}
+sumnona <- function(x){if (all(is.na(x))) x[NA_integer_] else sum(x, na.rm = TRUE)}
+meanona <- function(x){if (all(is.na(x))) x[NA_integer_] else mean(x, na.rm = TRUE)}
+```
 
+### Data download
+```{r datadown, results = "hide"}
+# Create temporary file
+temp <- tempfile()
+
+# Download zip into temporary file
+download.file(url = "https://github.com/nairarshad/RepData_PeerAssessment1/blob/master/activity.zip?raw=true",
+              destfile = temp, mode='wb')
+
+# Unzip the zip file
+data.unzip <- unzip(temp)
+
+# Unlink the temporary file
+unlink(temp)
+```
+### Data load
+```{r dataload}
+# Read the activity data
+activity.data <- read.csv(data.unzip, stringsAsFactors = FALSE) %>% 
+    tbl_df() %>%
+    mutate(date = as.Date(date))
+```
+
+### Data pre-processing and analysis
+```{r dataproc}
+# Total steps by date
+total.steps <- activity.data %>%
+    group_by(date) %>%
+    summarize(total_steps = sumnona(steps),
+              total_intervals = n()) %>%
+    mutate(total_intervals = NULL)
+
+# Histogram of the total number of steps taken each day
+p1 <- ggplot(data = total.steps, aes(x = total_steps)) 
+p1 <- p1 + geom_histogram(bins = 25) 
+p1 <- p1 + labs(x = "Total Step Count",
+                y = "Count",
+                title = "Histogram of the total number of steps taken each day")
+p1 <- p1 + theme_bw()
+
+# Mean and median total steps
+total.steps.mean <- mean(total.steps$total_steps, na.rm = TRUE)
+total.steps.medn <- median(total.steps$total_steps, na.rm = TRUE)
+
+# Average step count for each 5-min interval
+interval.5min <- activity.data %>%
+    group_by(interval) %>%
+    summarize(avg_steps = mean(steps, na.rm = TRUE))
+
+# Time series plot of the average number of steps taken across all days at 5-minute intervals
+p2 <- ggplot(data = interval.5min, aes(x = interval, y = avg_steps))
+p2 <- p2 + geom_line()
+p2 <- p2 + labs(x = "Interval (HHMM)",
+                y = "Average step count",
+                title = "Time series plot of the average number of steps taken across all days at 5-minute intervals")
+p2 <- p2 + scale_x_continuous(labels = function(x) str_pad(x, width = 4, pad = "0"))
+p2 <- p2 + theme_bw()
+
+# Which interval corresponds to maximum average steps
+maxintrvl <- interval.5min$interval[which.max(interval.5min$avg_steps)]
+
+# How many NAs in the data
+countna <- sum(is.na(activity.data$steps))
+
+# Inititalize df for manioulation: impute for NAs
+activity.data.nona <- as.data.frame(activity.data)
+
+# Row-wise identify NA and replace with interval average
+for(i in 1:nrow(activity.data.nona)){
+    if(is.na(activity.data.nona[i,"steps"])){
+        intrvl <- activity.data.nona[i,"interval"]
+        activity.data.nona[i,"steps"] <- 
+            interval.5min$avg_steps[interval.5min$interval==intrvl]
+    }
+}
+
+# Total steps from imputed data by date
+total.steps.nona <- activity.data.nona %>%
+    group_by(date) %>%
+    summarize(total_steps = sumnona(steps),
+              total_intervals = n()) %>%
+    mutate(total_intervals = NULL)
+
+# Histogram of the total number of steps taken each day (Imputed Data)
+p3 <- ggplot(data = total.steps.nona, aes(x = total_steps)) 
+p3 <- p3 + geom_histogram(bins = 25) 
+p3 <- p3 + labs(x = "Total Step Count",
+                y = "Count",
+                title = "Histogram of the total number of steps taken each day (Imputed Data)")
+p3 <- p3 + theme_bw()
+
+# Mean and median total steps after imputing
+total.steps.nona.mean <- mean(total.steps.nona$total_steps, na.rm = TRUE)
+total.steps.nona.medn <- median(total.steps.nona$total_steps, na.rm = TRUE)
+
+# Backup the imputed data
+activity.data.nona.bc <- activity.data.nona
+activity.data.nona <- NULL
+
+# Add factor column whether Weekday/Weekend
+activity.data.nona <- activity.data.nona.bc %>%
+    mutate(day = fct_collapse(factor(weekdays(date, abbreviate = TRUE)), 
+                              Weekend = c("Sat","Sun"),
+                              Weekday = c("Mon","Tue","Wed","Thu","Fri"))) %>%
+    mutate(day = factor(day, levels = c("Weekend","Weekday")))
+
+# Average by wday and interval
+wday.mean <- activity.data.nona %>%
+    tbl_df() %>%
+    group_by(day, interval) %>%
+    summarize(avg_steps = mean(steps, na.rm = TRUE))
+
+# Time series plot of the average number of steps taken across all days at 5-minute intervals
+p4 <- ggplot(data = wday.mean, aes(x = interval, y = avg_steps))
+p4 <- p4 + geom_line()
+p4 <- p4 + labs(x = "Interval (HHMM)",
+                y = "Average step count",
+                title = "Time series plot of the average number of steps taken across all days at 5-minute intervals")
+p4 <- p4 + scale_x_continuous(labels = function(x) str_pad(x, width = 4, pad = "0"))
+p4 <- p4 + facet_grid(day~.)
+p4 <- p4 + theme_bw()
+```
 
 ## What is mean total number of steps taken per day?
+
+**Q:** Calculate the total number of steps taken per day.
+
+**A:** `r print(dfSummary(total.steps, graph.magnif = 0.75), method = 'render')`
+
+
+**Q:** Make a histogram of the total number of steps taken each day.
+
+**A:** 
+```{r fig1, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
+print(p1)
+```
+
+
+**Q:** Calculate and report the mean and median of the total number of steps taken per day
+
+**A:** For the total number of steps taken per day, the mean is `r total.steps.mean` and the median is `r total.steps.medn`.
 
 
 
 ## What is the average daily activity pattern?
 
+**Q:** Make a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+
+**A:** 
+```{r fig2, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
+print(p2)
+```
+
+
+
+**Q:** Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+**A:** `r maxintrvl` is the interval that corresponds to the maximum average number of steps.
+
 
 
 ## Imputing missing values
 
+**Q:** Calculate and report the total number of missing values in the dataset.
+
+**A:** `r countna` is the number of missing values in the dataset.
+
+
+
+**Q:** Devise a strategy for filling in all of the missing values in the dataset.
+
+**A:** Missing values are replaced by the average value across all days corresponding to the interval. This helps the dataset retain the properties of its initial distribution.
+
+
+
+**Q:** Create a new dataset that is equal to the original dataset but with the missing data filled in.
+
+**A:** `r print(dfSummary(activity.data.nona.bc, graph.magnif = 0.75), method = 'render')`
+
+
+
+**Q:** Make a histogram of the total number of steps taken each day 
+
+**A:** 
+```{r fig3, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
+print(p3)
+```
+
+
+
+**Q:** Calculate and report the mean and median total number of steps taken per day. 
+
+**A:** For the total number of steps taken per day from the imputed data, the mean is `r total.steps.nona.mean` and the median is `r total.steps.nona.medn`.
+
+
+
+**Q:** Do these values differ from the estimates from the first part of the assignment? 
+
+**A:** New mean - Original mean = `r (total.steps.nona.mean-total.steps.mean)`. New median - Original median = `r (total.steps.nona.medn-total.steps.medn)`
+
+
+
+**Q:** What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+**A:** There are 8 days for which there is no data in any interval. These obtain the long-term averages. The total daily number of steps changes as:
+```{r figx, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
+print(ggarrange(p1,p3, labels = c("Original","Imputed"), vjust = 5, hjust=-1))
+```
+
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+**Q:** Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+
+**A:** `r print(dfSummary(activity.data.nona, graph.magnif = 0.75), method = 'render')`
+
+
+
+**Q:** Make a panel plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis).
+
+**A:** 
+```{r fig4, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
+print(p4)
+```
+
+
